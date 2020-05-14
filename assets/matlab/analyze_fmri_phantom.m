@@ -30,11 +30,14 @@ try
     clear roir;
 
     % some defaults
-    NPIX = 64; % NPIX = 128; %NPIX = input('npix (cr = 64) = '); % matrix
+    %%NPIX = 64; % NPIX = 128; %NPIX = input('npix (cr = 64) = '); % matrix
     numsl=40;
     I1 = 3403;      % first image
     I2 = 3600;      % last image
     TR = 2.0;       % rep time, s
+    
+    % If in-plane image is not square, then crop and centre...  
+    [I4d, NPIX] = centre_volume(vol,[90,90]);
 
     % parse the settings
     if(isempty(NPIX))
@@ -43,8 +46,11 @@ try
 
     if(NPIX == 128)
         R = 30; % ROI width
-    else
+    elseif (NPIX == 64)
         R = 15; % probably 64x64
+    else
+        %Probably somewhere in between
+        R = 20; 
     end
 
     % calculate remaining constants
@@ -279,4 +285,56 @@ try
 catch
     exit(1)
 end
+end
+
+
+function [cvol,NPIX] = centre_volume(vol, end_shape)
+
+    % Crop image along both dimensions if needed -- but keep centered
+    init_vol = vol; 
+    for i = 1 : length(end_shape)
+        
+        
+        
+        %If match then skip dimension
+        if size(vol,i) == end_shape(i)
+            continue;
+        end
+        
+        %If not...
+        total_pad = size(init_vol,i) - end_shape(i);
+        pad_lower = floor(total_pad/2);
+        pad_upper = total_pad - pad_lower; 
+        
+        %Make a new volume matching the original but cropped along the
+        %needed dimension
+        interm_shape = size(init_vol);
+        interm_shape(i) = end_shape(i);
+        interm_vol = zeros(interm_shape); 
+        
+        %Fill out the ith dimension using padding
+        bounds = zeros(length(interm_shape),2); 
+        for k = 1:size(bounds,1)
+            if k == i
+                bounds(k,1) = pad_lower + 1;
+                bounds(k,2) = size(init_vol,k) - pad_upper;
+            else
+                bounds(k,1) = 1;
+                bounds(k,2) = interm_shape(k); 
+            end
+        end
+        
+        %Perform full selection
+        interm_vol(:,:,:,:) = init_vol(bounds(1,1):bounds(1,2),bounds(2,1):bounds(2,2),bounds(3,1):bounds(3,2),bounds(4,1):bounds(4,2)); 
+       
+        %Update
+        init_vol = interm_vol; 
+        
+    end
+    
+    cvol = init_vol; 
+    NPIX = size(cvol,1); 
+
+
+
 end
