@@ -77,6 +77,8 @@ def main(nifti, bvec, bval, output_prefix):
     bvec = np.genfromtxt(bvec)
     bval = np.genfromtxt(bval)
 
+    # HOTFIX: Account for small deviations in observed bvals
+    bval[np.abs(bval) < 10] = 0
     idxDirs = np.where(bval > 0)[0]
     nDirs = len(idxDirs)
     nB0s = len(bval) - len(idxDirs)
