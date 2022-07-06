@@ -7,6 +7,7 @@ subject numbers/names, checking paths, gathering information, etc.
 import os, sys
 import logging
 import tempfile
+import shutil
 from functools import wraps
 
 import numpy as np
@@ -319,8 +320,8 @@ def make_tmpdir(f):
         try:
             result = f(*args, tmpdir=tmp_dir, **kwargs)
         except Exception:
-            os.rmdir(tmp_dir)
+            shutil.rmtree(tmp_dir)
             raise
-        os.rmdir(tmp_dir)
+        shutil.rmtree(tmp_dir)
         return result
     return wrapped_func
