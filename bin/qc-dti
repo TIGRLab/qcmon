@@ -23,15 +23,15 @@ imaging outcomes in a large-scale population-based cohort. Neuroimage. 2016.
 """
 
 import os,sys
-import tempfile
 import logging
-import shutil
 import qcmon as qc
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')   # Force matplotlib to not use any Xwindows backend
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
+
+from qcmon.utilities import make_tmpdir
 
 logging.basicConfig(level=logging.WARN, format="[%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger(os.path.basename(__file__))
@@ -56,22 +56,20 @@ def float_to_int(filename):
     with open(filename,'w') as f:
         f.write(write_str)
 
-def main(nifti, bvec, bval, output_prefix):
+@make_tmpdir
+def main(nifti, bvec, bval, output_prefix, tmpdir=None):
 
     # add qascript to path
     qascriptsPath = os.path.join(os.path.dirname(os.path.realpath(__file__)), os.pardir, 'assets/qascripts_version2')
     os.environ['PATH'] += os.pathsep + qascriptsPath
 
     # run metrics from qascripts toolchain
-    tmpdir = tempfile.mkdtemp(prefix='qc-')
     qc.utilities.run('cp {nifti} {t}/dti.nii.gz'.format(nifti=nifti, t=tmpdir))
     qc.utilities.run('cp {bval} {t}/dti.bval'.format(bval=bval, t=tmpdir))
     qc.utilities.run('cp {bvec} {t}/dti.bvec'.format(bvec=bvec, t=tmpdir))
     float_to_int(os.path.join(tmpdir,'dti.bval'))
     qc.utilities.run('qa_dti_v2.sh {t}/dti.nii.gz {t}/dti.bval {t}/dti.bvec {t}/qc_dti.csv'.format(t=tmpdir))
     qc.utilities.run('mv {t}/qc_dti.csv {output_prefix}_qascripts_dti.csv'.format(t=tmpdir, output_prefix=output_prefix))
-
-    shutil.rmtree(tmpdir)
 
     # load in data for remaining QC
     bvec = np.genfromtxt(bvec)
