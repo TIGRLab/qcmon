@@ -315,7 +315,7 @@ def make_tmpdir(f):
     """
     @wraps(f)
     def wrapped_func(*args, **kwargs):
-        tmp_dir = tempfile.mkdtemp(prefix='qc-')
+        tmp_dir = tempfile.mkdtemp(prefix='qcmon-')
         try:
             result = f(*args, tmpdir=tmp_dir, **kwargs)
         except Exception:
