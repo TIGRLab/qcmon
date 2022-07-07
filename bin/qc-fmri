@@ -39,7 +39,7 @@ import scipy as sp
 import scipy.signal as sig
 import nibabel as nib
 
-from qcmon.utilities from make_tmpdir
+from qcmon.utilities import make_tmpdir
 
 logging.basicConfig(level=logging.INFO, format="[%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger(os.path.basename(__file__))
