@@ -32,8 +32,6 @@ Usage:
 """
 
 import os, sys
-import tempfile
-import shutil
 import logging
 import qcmon as qc
 import numpy as np
@@ -41,10 +39,14 @@ import scipy as sp
 import scipy.signal as sig
 import nibabel as nib
 
+from qcmon.utilities import make_tmpdir
+
 logging.basicConfig(level=logging.INFO, format="[%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger(os.path.basename(__file__))
 
-def main(nifti, prefix):
+
+@make_tmpdir
+def main(nifti, prefix, tmpdir):
 
     logging.info('Starting')
 
@@ -54,7 +56,6 @@ def main(nifti, prefix):
 
     # pre-processing
     logging.info('Running AFNI pre-processing suite')
-    tmpdir = tempfile.mkdtemp(prefix='qc-')
     qc.utilities.run('3dvolreg -prefix {t}/mcorr.nii.gz -twopass -twoblur 3 -Fourier -1Dfile {t}/motion.1D {nifti}'.format(t=tmpdir, nifti=nifti))
     qc.utilities.run('3dTstat -prefix {t}/mean.nii.gz {t}/mcorr.nii.gz'.format(t=tmpdir))
     qc.utilities.run('3dAutomask -prefix {t}/mask.nii.gz -clfrac 0.5 -peels 3 {t}/mean.nii.gz'.format(t=tmpdir))
@@ -134,8 +135,6 @@ def main(nifti, prefix):
     qc.utilities.run('mv {t}/qc_bold.csv {prefix}_qascripts_bold.csv'.format(t=tmpdir, prefix=prefix))
 
     logging.info('Finished processing...')
-
-    shutil.rmtree(tmpdir)
 
 if __name__ == '__main__':
     if len(sys.argv) == 3:

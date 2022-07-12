@@ -41,21 +41,19 @@ See qa-dti --help for usage.
 """
 import os
 import sys
-import tempfile
-import shutil
 import logging
 import subprocess as proc
 from docopt import docopt
 
+from qcmon.utilities import make_tmpdir
+
 logging.basicConfig(level=logging.WARN,
                     format="[%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger(os.path.basename(__file__))
-tmpdir = tempfile.mkdtemp(prefix='qa-dti-')
 
 
 def shutdown(returncode=0):
     """removes temporary files and exits"""
-    shutil.rmtree(tmpdir)
     sys.exit(returncode)
 
 
@@ -71,7 +69,8 @@ def run(cmd):
         shutdown(returncode=p.returncode)
 
 
-def main(nifti, bvec, bval, output_prefix, accel='n'):
+@make_tmpdir
+def main(nifti, bvec, bval, output_prefix, accel='n', tmpdir=None):
     """Runs FSL dtifit to generate an FA map before running analyze_dti_phantom.m"""
 
     # preprocessing: make FA map

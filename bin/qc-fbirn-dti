@@ -35,15 +35,17 @@ Details:
     Code packaged and maintained by Joseph Viviano, 2016.
 """
 import os, sys
-import tempfile
-import shutil
-import qcmon as qc
 import logging
+
+import qcmon as qc
+from qcmon.utilities import make_tmpdir
 
 logging.basicConfig(level=logging.WARN, format="[%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger(os.path.basename(__file__))
 
-def main(nifti, bvec, bval, output_prefix, accel='n'):
+
+@make_tmpdir
+def main(nifti, bvec, bval, output_prefix, tmpdir=None, accel='n'):
 
     logging.info('Starting')
 
@@ -57,7 +59,6 @@ def main(nifti, bvec, bval, output_prefix, accel='n'):
         sys.exit(1)
 
     # preprocessing: make FA map
-    tmpdir = tempfile.mkdtemp(prefix='qc-')
     qc.utilities.run('fslroi {nifti} {t}/tmp_b0.nii.gz 0 1'.format(nifti=nifti, t=tmpdir))
     qc.utilities.run('bet {t}/tmp_b0.nii.gz {t}/tmp_b0_bet.nii.gz -m -f 0.3 -R'.format(t=tmpdir))
     qc.utilities.run('dtifit -k {nifti} -m {t}/tmp_b0_bet_mask.nii.gz -r {bvec} -b {bval} -o {t}/dtifit'.format(
@@ -73,8 +74,6 @@ def main(nifti, bvec, bval, output_prefix, accel='n'):
                                               matlabPath, nifti, fa, bval, output_prefix, accel))
     qc.utilities.run('matlab -nodisplay -nosplash -r "' + cmd + '"')
 
-    shutil.rmtree(tmpdir)
-
 if __name__ == '__main__':
     if len(sys.argv) == 6:
         main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], accel=sys.argv[5])
@@ -82,4 +81,3 @@ if __name__ == '__main__':
         main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])
     else:
         print(__doc__)
-
