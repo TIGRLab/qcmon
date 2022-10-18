@@ -4,7 +4,7 @@ A collection of utilities for the generating pipelines. Mostly for getting
 subject numbers/names, checking paths, gathering information, etc.
 """
 
-import os, sys
+import os
 import logging
 import tempfile
 import shutil
@@ -14,6 +14,13 @@ import numpy as np
 import nibabel as nib
 
 logger = logging.getLogger(__name__)
+
+
+class RunException(Exception):
+    """For when a run() command returns a non-zero exit status.
+    """
+    pass
+
 
 def get_subj(dir):
     """
@@ -307,8 +314,10 @@ def run(cmd):
     out, err = p.communicate()
 
     if p.returncode != 0:
-        logger.error('{} failed with returncode {}.\nSTDOUT: {}\nSTDERR: {}'.format(cmd, p.returncode, out, err))
-        sys.exit(1)
+        raise RunException(
+            f'{cmd} failed with returncode {p.returncode}.'
+            f'\nSTDOUT: {out}\nSTDERR: {err}'
+        )
 
 
 def make_tmpdir(f):
