@@ -2,6 +2,8 @@
 
 #### Update docs and reorganize code.
 """
+from math import sqrt
+
 import nibabel as nib
 import numpy as np
 
@@ -145,6 +147,35 @@ def analyze_fmri_phantom(input_nii, output_prefix):
         # gets hardcoded to 3 and the if statement executes when == 4. So...
         # Ignore for now I guess.
 
+    # write out diff image
+    Isub = Iodd - Ieven;
+    # I think this is just to convert from a 4096,1 vector to a 64x64 matrix.
+    # img(:) = Isub;
+    img = Isub.reshape((num_pix, num_pix)).T  # Take transpose to avoid flipping rows and cols
+    # And then this slices the roi values
+    # sub = img(X1:X2,Y1:Y2);
+    sub = img[X1:X2+1, Y1:Y2+1]  # Watch the upper bounds. sub should be 15x15
+    # This takes the variance of the flattened sub (to get a single val instead of row of variance)
+    # varI = var(sub(:));
+    varI = np.var(sub.flatten())  # This val is slightly off... rounding issues?
+
+    # write out ave image
+    Sy = Iodd + Ieven
+    Iave = Sy / N
+    img = Iave.reshape((num_pix, num_pix)).T
+    sub = img[X1:X2+1, Y1:Y2+1]
+    meanI = sub.flatten().mean() # Matches! Yay!
+
+    # find trend line at a + b
+    D = (Stt*S0 - St*St);
+    a = (Syt*S0 - St*Sy)/D;  # This requires a check that D != 0 to avoid zero division exceptions
+    b = (Stt*Sy - St*Syt)/D; # And this
+
+    # Make sd image
+    Var = Syy + a.*a*Stt +b.*b*S0 + 2*a.*b*St - 2*a.*Syt - 2*b.*Sy;
+    Isd = sqrt(Var/(N-1));
+
+    # make sfnr image
 
 
 
