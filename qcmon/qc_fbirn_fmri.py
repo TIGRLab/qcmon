@@ -2,54 +2,202 @@
 
 #### Update docs and reorganize code.
 """
+import logging
+
 import matplotlib
 import matplotlib.pyplot as plt
 import nibabel as nib
 import numpy as np
 
+logger = logging.getLogger(__name__)
 matplotlib.use('Agg')
 
-# Should probably be 4 in python given 0 indexing
-# If updated, remove all -1 instances
-TRIM_TR = 5 - 1 # Formerly 'i1'
+TRIM_TR = 4 # Trim the first 5 TRs (it's 4 because of 0 indexing)
+NUM_SLICES = 20
+TOTAL_SLICES = 40
+
+
+class FMRIPhantom:
+
+    def __init__(self, input_nii):
+        self.data = nib.load(input_nii).get_fdata()
+        self.num_pix = self.data.shape[0]
+        self.roi_width = self.get_roi_width()
+        self.X1 = ((self.num_pix // 2) - (self.roi_width // 2)) - 1
+        self.X2 = self.X1 + self.roi_width
+        self.size_4d = self.data.shape[3]
+        self.num_TRs = self.size_4d - TRIM_TR
+        self.mask = np.ones((self.roi_width, self.roi_width))
+        self.mask_num_pix = sum(sum(mask))
+        self.calc_values()
+
+    def get_roi_width(self):
+        if self.num_pix == 128:
+            roi_width = 30
+        elif self.num_pix == 64:
+            roi_width = 15
+        else:
+            roi_width = 20
+        return roi_width
+
+    def calc_values(self):
+        self.Iodd = np.zeros((self.num_pix * self.num_pix, 1))
+        self.Ieven = np.zeros((self.num_pix * self.num_pix, 1))
+        self.Syy = np.zeros((self.num_pix * self.num_pix, 1))
+        self.Syt = np.zeros((self.num_pix * self.num_pix, 1))
+        self.St = self.Stt = self.S0 = 0
+        self.roi = []
+        self.roir = np.zeros((self.num_TRs, self.roi_width))
+
+        half_pix = self.num_pix // 2
+        for idx in range(TRIM_TR, self.size_4d):
+            A = np.squeeze(self.data[:, :, NUM_SLICES - 1, idx])
+            tmpI = A.flatten()
+            I = tmpI[:, np.newaxis]
+
+            if (idx + 1) % 2 == 0:
+                self.Ieven = self.Ieven + I
+            else:
+                self.Iodd = self.Iodd + I
+
+            self.Syt = self.Syt + I * (idx + 1)
+            self.Syy = Syy + I * I
+            self.S0 += 1
+            self.St += (idx + 1)
+            self.Stt = self.Stt + (idx + 1) * (idx + 1)
+
+            sub = A[self.X1:self.X2, self.X1:self.X2]
+            roi.append(sum(sum(sub)) / self.mask_num_pix)
+
+            for size in range(1, self.roi_width + 1):
+                x1 = half_pix - int(size / 2) - 1
+                x2 = x1 + size
+                sub = A[x1:x2, x1:x2]
+                roir[idx - TRIM_TR, size - 1] = sub.mean()
+
+            # There was originally additional code here, but it never
+            # executed due to 'num_win' being hardcoded to 3 so I've omited it.
+            # see line 146 ('do the phase') onward in analyze_fmri_phantom.m
+
+        Isub = self.Iodd - self.Ieven
+        self.Isub = Isub.reshape((self.num_pix, self.num_pix)).T
+
+
+def make_images_file(phantom, output_prefix):
+    Iave = phantom.Iave.reshape((phantom.num_pix, phantom.num_pix))
+    Isub = phantom.Isub.reshape((phantom.num_pix, phantom.num_pix))
+    Isd = 10 * phantom.Isd.reshape((phantom.num_pix, phantom.num_pix))
+    Isfnr = 10 * phantom.sfnr.reshape((phantom.num_pix, phantom.num_pix))
+
+    fig, ((Iaveimg, Isdimg), (Isubimg, Isfnrimg)) = plt.subplots(2, 2)
+
+    # Should pcolormesh be used instead of imshow?
+    Iaveimg.imshow(Iave, cmap='gray')
+    Iaveimg.title.set_text('Average')
+
+    Isdimg.imshow(Isd, cmap='gray')
+    Isdimg.title.set_text('Std')
+
+    Isubimg.imshow(Isub, cmap='gray')
+    Isubimg.title.set_text('Noise')
+
+    # This one is much lighter in the matlab image... need to investigate closer
+    Isfnrimg.imshow(Isfnr, cmap='gray')
+    Isfnrimg.title.set_text('SFNR')
+
+    plt.tight_layout()
+    plt.savefig(output_prefix + "_images.jpg")
+
+
+def make_plots_file(phantom, output_prefix, num_win=3, TR=2.0):
+    x, y, yfit = fluctuation_analysis(phantom.num_TRs, phantom.roi)
+    drift = 100 * (yfit[-1] - yfit[0]) / np.mean(phantom.roi)
+    sd = 100 * np.std(y) / np.mean(phantom.roi)
+
+    fig, (signal, spectrum, rel_std) = plt.subplots(num_win, 1)
+    fig.suptitle(
+        f"Percent fluct. (trend removed), drift = {phantom.sd:5.2f} "
+        f"{phantom.drift:5.2f}"
+    )
+
+    signal.grid()
+    signal.plot(x, phantom.roi, x, yfit)
+    signal.set(xlabel='Frame Num', ylabel='Raw Signal')
+    signal.locator_params(axis="y", nbins=5)
+
+    z = np.fft.fft(y)
+    fs = 1 / TR
+    nf = phantom.num_TRs // 2 + 1
+    f = [0.5 * num * fs / nf for num in range(1, nf + 1)]
+    vals = np.abs(z[:nf])
+
+    spectrum.grid()
+    spectrum.plot(f, vals)
+    spectrum.set(xlabel='Frequency, Hz', ylabel='Spectrum')
+    spectrum.locator_params(axis="y", nbins=5)
+    title = (f"Mean = {phantom.meanI:5.1f}, SNR = {phantom.snr:5.1f}, "
+             f"SFNR = {phantom.sfnrI:5.1f}")
+    spectrum.set_title(title, fontsize='10')
+
+    t = list(range(phantom.num_TRs))
+    rr = list(range(phantom.r2))
+    F = []
+    for num in rr:
+        tmp = phantom.roir[:, num]
+        yfit = np.polyval(np.polyfit(t, tmp, 2), t)
+        F.append(np.std(tmp - yfit) / np.mean(yfit))
+
+
+def make_stats_file(phantom, output_prefix):
+    output_file = output_prefix + "_stats.csv"
+    header = "mean,std,%fluct,drift,snr,sfnr,rdc\n"
+    contents = (
+        f"{phantom.meanI:09.3f},"
+        f"{np.std(phantom.y):09.3f},"
+        f"{phantom.sd:09.3f},"
+        f"{phantom.drift:09.3f},"
+        f"{phantom.snr:09.3f},"
+        f"{phantom.sfnrI:09.3f},"
+        f"{phantom.rdc:09.3f}\n"
+    )
+    with open(output_file, "w") as fh:
+        fh.writelines([header, contents])
 
 
 def analyze_fmri_phantom(input_nii, output_prefix):
     """Refactored code from the matlab folder.
     """
     # addpath(genpath('/home/desmith/Desktop/code/work/linked_nii/qcmon/assets/matlab'));
+    phantom = FMRIPhantom(input_nii)
 
-    # I4d = matrix of nifti data
-    img_4d = nib.load(input_nii)
-    img_4d = img_4d.get_fdata()
+    Iave, Isub, Isd, sfnr, num_pix, N, roi, roir, r2 = prep_data(input_nii)
+    make_figures(Iave, Isub, Isd, sfnr, num_pix, output_prefix)
+    make_plots(N, roi, roir, r2, output_prefix)
+
+
+def prep_data(input_nii):
+    # img_4d = nib.load(input_nii).get_fdata()
+    phantom = FMRIPhantom(input_nii)
+
     # fid is open file handle for _stats.csv file
     # Write header to output file
 
     # Set some variables (numsl etc)
 
-    img_4d, num_pix = center_volume(img_4d, [90, 90])
-
-    if num_pix is None:
-        num_pix = 128
-
-    if num_pix == 128:
-        roi_width = 30
-    elif num_pix == 64:
-        roi_width = 15
-    else:
-        roi_width = 20
+    # img_4d, num_pix = center_volume(img_4d, [90, 90])
+    # roi_width = get_roi_width(num_pix)
 
     # More constants being used in the main loop
-    npo2 = num_pix // 2
-    ro2 = int(roi_width / 2)
-    X1 = Y1 = (npo2 - ro2) - 1 # subtract one to make equal to matlab result
-    X2 = Y2 = X1 + roi_width   # Dont subtract one since upper bound exclusive
-    r1 = 1 # Maybe should be 0?
-    r2 = roi_width # why have this in addition to roi_width (aka R)???
+    # npo2 = num_pix // 2      # Redundant var?
+    # ro2 = int(roi_width / 2) # Redundant var?
+    # X1 = Y1 = ((num_pix // 2) - (roi_width // 2)) - 1
+    # X2 = Y2 = X1 + roi_width   # Dont subtract one since upper bound exclusive
+    # r1 = 1 # Maybe should be 0?
+    # r2 = roi_width # why have this in addition to roi_width (aka R)???
 
     # Make a square mask of ones of size roi_width x roi_width
-    mask = np.ones((roi_width, roi_width))
-    npx = sum(sum(mask))
+    # mask = np.ones((roi_width, roi_width))
+    # npx = sum(sum(mask))
     # img = square matrix of zeroes of size num_pix
     # mag == img
 
@@ -58,14 +206,14 @@ def analyze_fmri_phantom(input_nii, output_prefix):
     # i2 = img_4d.shape[3] (i.e. size of last dimension)
     # N = size of last dim - 5 + 1 (num of TRs)
     # M = (calculated by other chunk of vars)
-    N = img_4d.shape[3] - TRIM_TR   # Add one or no?
-    M = roi_width
+    # N = img_4d.shape[3] - TRIM_TR   # Add one or no?
+    # M = roi_width
 
     # Are these deletable?
-    roir = np.zeros((N, M))
+    # roir = np.zeros((N, M))
     # fkern = output_prefix
     # numwin = 3 (??)
-    size_4d = img_4d.shape[3] # formerly i2
+    # size_4d = img_4d.shape[3] # formerly i2
 
     # This should maybe be 19 in python, given 0 index
     # If updated, remove all -1 instances
@@ -76,13 +224,13 @@ def analyze_fmri_phantom(input_nii, output_prefix):
     # Init the arrays for summing cells
     img = np.zeros(num_pix)
     mag = np.zeros(num_pix)
-    roi = []  # Replacement for matlab roi(S0) syntax that just automatically accumulates in list
+    #roi = []  # Replacement for matlab roi(S0) syntax that just automatically accumulates in list
 
     Iodd, Ieven, Syy, Syt, St, Stt, S0, roi, roir = modify_matrix(
         img_4d, num_pix, npx, roi_width)
 
     # write out diff image
-    Isub = Iodd - Ieven;
+    Isub = Iodd - Ieven
     # I think this is just to convert from a 4096,1 vector to a 64x64 matrix.
     # img(:) = Isub;
     img = Isub.reshape((num_pix, num_pix)).T  # Take transpose to avoid flipping rows and cols
@@ -116,10 +264,7 @@ def analyze_fmri_phantom(input_nii, output_prefix):
     sfnrI = sub.flatten().mean()
 
     snr = meanI / np.sqrt(varI / N)
-    # Here is where values are written / displayed
-
-    make_figures(Iave, Isub, Isd, sfnr, num_pix, output_prefix)
-    make_plots(N, roi, r2)
+    return Iave, Isub, Isd, sfnr, num_pix, N, roi, roir, r2, meanI, snr, sfnrI
 
 
 def center_volume(img_4d, end_shape=None):
@@ -133,8 +278,23 @@ def center_volume(img_4d, end_shape=None):
 
         # Do cropping here (see rest of centre_volume)
 
+    num_pix = img_4d.shape[0]
+
+    # if num_pix is None:
+    #     num_pix = 128
+
     # Return fixed version here
-    return img_4d, img_4d.shape[0]
+    return img_4d, num_pix
+
+
+# def get_roi_width(num_pix):
+#     if num_pix == 128:
+#         roi_width = 30
+#     elif num_pix == 64:
+#         roi_width = 15
+#     else:
+#         roi_width = 20
+#     return roi_width
 
 
 def modify_matrix(img_4d, num_pix, npx, roi_width, num_slices=20,
@@ -229,35 +389,35 @@ def modify_matrix(img_4d, num_pix, npx, roi_width, num_slices=20,
     return Iodd, Ieven, Syy, Syt, St, Stt, S0, roi, roir
 
 
-def make_figures(Iave, Isub, Isd, sfnr, num_pix, output_prefix):
-    # This is the 'generate images' part of Joe's code
-
-    # Watch it, may need the transpose here
-    Iave = Iave.reshape((num_pix, num_pix))
-    Isub = Isub.reshape((num_pix, num_pix))
-    Isd = 10 * Isd.reshape((num_pix, num_pix))
-    Isfnr = 10 * sfnr.reshape((num_pix, num_pix))
-
-    ######## Make figures here
-    # figure(1)
-    fig, ((Iaveimg, Isdimg), (Isubimg, Isfnrimg)) = plt.subplots(2, 2)
-
-    # Should pcolormesh be used instead of imshow?
-    Iaveimg.imshow(Iave, cmap='gray')
-    Iaveimg.title.set_text('Average')
-
-    Isdimg.imshow(Isd, cmap='gray')
-    Isdimg.title.set_text('Std')
-
-    Isubimg.imshow(Isub, cmap='gray')
-    Isubimg.title.set_text('Noise')
-
-    # This one is much lighter in the matlab image... need to investigate closer
-    Isfnrimg.imshow(Isfnr, cmap='gray')
-    Isfnrimg.title.set_text('SFNR')
-
-    plt.tight_layout()
-    plt.savefig(output_prefix + "_images.jpg")
+# def make_figures(Iave, Isub, Isd, sfnr, num_pix, output_prefix):
+#     # This is the 'generate images' part of Joe's code
+#
+#     # Watch it, may need the transpose here
+#     Iave = Iave.reshape((num_pix, num_pix))
+#     Isub = Isub.reshape((num_pix, num_pix))
+#     Isd = 10 * Isd.reshape((num_pix, num_pix))
+#     Isfnr = 10 * sfnr.reshape((num_pix, num_pix))
+#
+#     ######## Make figures here
+#     # figure(1)
+#     fig, ((Iaveimg, Isdimg), (Isubimg, Isfnrimg)) = plt.subplots(2, 2)
+#
+#     # Should pcolormesh be used instead of imshow?
+#     Iaveimg.imshow(Iave, cmap='gray')
+#     Iaveimg.title.set_text('Average')
+#
+#     Isdimg.imshow(Isd, cmap='gray')
+#     Isdimg.title.set_text('Std')
+#
+#     Isubimg.imshow(Isub, cmap='gray')
+#     Isubimg.title.set_text('Noise')
+#
+#     # This one is much lighter in the matlab image... need to investigate closer
+#     Isfnrimg.imshow(Isfnr, cmap='gray')
+#     Isfnrimg.title.set_text('SFNR')
+#
+#     plt.tight_layout()
+#     plt.savefig(output_prefix + "_images.jpg")
 
 
 def fluctuation_analysis(N, roi):
@@ -268,28 +428,32 @@ def fluctuation_analysis(N, roi):
     return x, y, yfit
 
 
-def make_plots(N, roi, roir, r2, output_prefix, num_win=3, TR=2.0):
+def make_plots(N, roi, roir, r2, meanI, snr, sfnrI, output_prefix,
+               num_win=3, TR=2.0):
     """This does the big from 'generate plots' comment onward
     """
     fig, (signal, spectrum, rel_std) = plt.subplots(num_win, 1)
 
     x, y, yfit = fluctuation_analysis(N, roi)
-
+    drift = 100 * (yfit[-1] - yfit[0]) / np.mean(roi)
+    sd = 100 * np.std(y) / np.mean(roi)
 
     # Return to adding the y-axis + grid and correct scale etc.
     # Must also make the csv of values (some of the comments here needed)
-
+    fig.suptitle(
+        f"Percent fluct. (trend removed), drift = {sd:5.2f} {drift:5.2f}"
+    )
 
     # 'signal'
-    plt.grid()
+    # plt.grid()
+    signal.grid()
     signal.plot(x, roi, x, yfit)
-    signal.set(xlabel='Frame Num', yaxis='Raw Signal')
+    signal.set(xlabel='Frame Num', ylabel='Raw Signal')
+    signal.locator_params(axis="y", nbins=5)
     # signal.xaxis.set_label_text('Frame Num')
     # signal.yaxis.set_label_text('Raw Signal')
     # grid   -> This toggles the visibility of grid lines
-    # m=mean(roi);
-    # sd=std(y);
-    # drift = (yfit(N)-yfit(1))/m;
+
     # title(sprintf('%s   percent fluct (trend removed), drift= %5.2f %5.2f', fkern, 100*sd/m, 100*drift));
 
     # 'spectrum'
@@ -304,9 +468,14 @@ def make_plots(N, roi, roir, r2, output_prefix, num_win=3, TR=2.0):
 
     # subplot(numwin,1,2);plot(f, abs(z(1:nf)));grid
     vals = np.abs(z[:nf]) # As a result of z being wrong on first val, this is too
+    spectrum.grid()
     spectrum.plot(f, vals)
-    spectrum.xaxis.set_label_text('Frequency, Hz')
-    spectrum.yaxis.set_label_text('Spectrum')
+    spectrum.set(xlabel='Frequency, Hz', ylabel='Spectrum')
+    spectrum.locator_params(axis="y", nbins=5)
+    spectrum.set_title(f"Mean = {meanI:5.1f}, SNR = {snr:5.1f}, SFNR = {sfnrI:5.1f}",
+                       fontsize='10')
+    # spectrum.text(0.05, 0, f"Mean = {meanI:5.1f}, SNR = {snr:5.1f}, SFNR = {sfnrI:5.1f}",
+    #               va="top", ha="center")
     # ylabel('spectrum');
     # xlabel('frequency, Hz');
     # ax = axis;
@@ -320,9 +489,9 @@ def make_plots(N, roi, roir, r2, output_prefix, num_win=3, TR=2.0):
     F = []
     for num in rr:
         # this used the ' operator originally.. ctranspose (?)
-        y = roir[:, num]
-        yfit = np.polyval(np.polyfit(t, y, 2), t)
-        F.append(np.std(y - yfit) / np.mean(yfit))
+        tmp = roir[:, num]
+        yfit = np.polyval(np.polyfit(t, tmp, 2), t)
+        F.append(np.std(tmp - yfit) / np.mean(yfit))
 
     # rr = (r1:r2); -> this is 1-15 (i.e. equal to range(r2) from above)
     # % percent
@@ -333,18 +502,28 @@ def make_plots(N, roi, roir, r2, output_prefix, num_win=3, TR=2.0):
     # % decorrelation distance
     # rdc = F(1)/F(r2);
     rdc = F[0]/F[-1]
+
+    make_csv(meanI, y, sd, drift, snr, sfnrI, rdc, output_prefix)
     #
     # subplot(numwin,1,3);
     # loglog(rr, F, '-x', rr, fcalc, '--');
     # '-x' and '--' seem to be setting the line markers to use (two lines on plot)
-    rel_std.xaxis.set_label_text('ROI full width, pixels')
-    rel_std.yaxis.set_label_text('Relative STD, %')
-    rel_std.set_yscale('log')
-    rel_std.set_xscale('log')
-    rel_std.plot(rr, F, rr, fcalc)
+    rel_std.grid()
+    rel_std.set(xlabel='ROI full width, pixels', ylabel='Relative STD, %',
+                yscale='log', xscale='log')
+    # rel_std.xaxis.set_label_text('ROI full width, pixels')
+    # rel_std.yaxis.set_label_text('Relative STD, %')
+    # rel_std.set_yscale('log')
+    # rel_std.set_xscale('log')
+    # rel_std.locator_params(axis="y", nbins=5)
+    rel_std.plot(rr, F, label="meas")
+    rel_std.plot(rr, fcalc, label="calc")
+    rel_std.set_title(f"RDC = {rdc:3.1f} pixels", fontsize='10')
+    # rel_std.text(0, -0.25, f"RDC = {rdc:3.1f} pixels", transform=rel_std.transAxes)
+    rel_std.legend(loc="upper right")
     # plt.loglog(rr, F, rr, fcalc)
     # plt.grid()
-    # plt.tight_layout()
+    plt.tight_layout()
     plt.savefig(output_prefix + "_plots.jpg")
     # grid
     # xlabel('ROI full width, pixels');
@@ -352,3 +531,11 @@ def make_plots(N, roi, roir, r2, output_prefix, num_win=3, TR=2.0):
     # axis([r1 r2 .01 1]);
     # text(6, 0.5, 'solid: meas   dashed: calc');
     # text(6, 0.25, sprintf('rdc = %3.1f pixels',rdc));
+
+
+def make_csv(meanI, y, sd, drift, snr, sfnrI, rdc, output_prefix):
+    output_file = output_prefix + "_stats.csv"
+    header = "mean,std,%fluct,drift,snr,sfnr,rdc\n"
+    contents = f"{meanI:09.3f},{np.std(y):09.3f},{sd:09.3f},{drift:09.3f},{snr:09.3f},{sfnrI:09.3f},{rdc:09.3f}\n"
+    with open(output_file, "w") as fh:
+        fh.writelines([header, contents])
