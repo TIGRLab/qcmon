@@ -82,8 +82,8 @@ def loadnii(filename):
 
     # load everything in
     nifti = nib.load(filename)
-    affine = nifti.get_affine()
-    header = nifti.get_header()
+    affine = nifti._affine
+    header = nifti._header
     dims = list(nifti.shape)
 
     # if smaller than 3D
@@ -95,7 +95,7 @@ def loadnii(filename):
         raise Exception("Your data is at least a penteract (over 4 dimensions!)")
 
     # load in nifti and reshape to 2D
-    nifti = nifti.get_data()
+    nifti = nifti.get_fdata()
     if len(dims) == 3:
         dims.append(1)
     nifti = nifti.reshape(dims[0]*dims[1]*dims[2], dims[3])
@@ -262,8 +262,8 @@ def load_masked_data(func, mask):
     Accepts 'functional.nii.gz' and 'mask.nii.gz', and returns a voxels x
     timepoints matrix of the functional data in non-zero mask locations.
     """
-    func = nib.load(func).get_data()
-    mask = nib.load(mask).get_data()
+    func = nib.load(func).get_fdata()
+    mask = nib.load(mask).get_fdata()
 
     mask = mask.reshape(mask.shape[0]*mask.shape[1]*mask.shape[2])
     idx = np.where(mask > 0)[0]
@@ -290,15 +290,15 @@ def get_mask_dims(mask):
     """
 
     nifti = nib.load(mask)
-    affine = nifti.get_affine()
-    header = nifti.get_header()
+    affine = nifti._affine
+    header = nifti._header
     dims = list(nifti.shape)
 
     if len(dims) != 3:
         raise Exception("ERROR: Mask should be 3D")
 
     # get flattened indicies
-    nifti = nifti.get_data()
+    nifti = nifti.get_fdata()
     nifti = nifti.reshape(dims[0]*dims[1]*dims[2], 1)
     idx = np.where(nifti > 0)[0]
 

@@ -101,7 +101,7 @@ def main(nifti, prefix, tmpdir):
 
     # calculate l2 norm, replacing zeros with smallest possible float
     norm = np.linalg.norm(func, ord=2, axis=1)
-    norm[np.where(norm == 0)[0]] = np.finfo(np.float).min
+    norm[np.where(norm == 0)[0]] = np.finfo(np.float64).min
 
     # corr: devide by norm, take mean, take dot of func & mean
     func = func / np.tile(norm, (dims[1], 1)).T

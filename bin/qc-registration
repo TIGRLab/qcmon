@@ -59,9 +59,9 @@ def process_subject(path, expt, mode, subj, pdf):
         os.system('3dedge3 -input ' + anat + ' -prefix ' + edge)
 
     # load in data
-    edge = nib.load(edge).get_data()
-    anat = nib.load(anat).get_data()
-    reg = nib.load(reg).get_data()
+    edge = nib.load(edge).get_fdata()
+    anat = nib.load(anat).get_fdata()
+    reg = nib.load(reg).get_fdata()
 
     # reorient the data to radiological
     edge = reorient_to_radiological(edge)

@@ -186,7 +186,7 @@ def gauss_blur(vol,sig):
         sig                 Gaussian sigma [default=1]
     '''
 
-    blur_vol = np.zeros_like(vol,dtype=np.float)
+    blur_vol = np.zeros_like(vol,dtype=np.float64)
 
     for i in np.arange(0,vol.shape[2]):
         blur_vol[:,:,i] = gauss_kernel(vol[:,:,i],sigma=sig,preserve_range=True)
@@ -259,7 +259,7 @@ def process_phantom(nifti, output_prefix, valid_radii, tmpdir, mp4=None):
 
     #Load in, axialize to LPI, save in tempdir
     axial_path = axialize_LPI(nifti, tmpdir)
-    axial_vol = nib.load(axial_path).get_data()
+    axial_vol = nib.load(axial_path).get_fdata()
 
     #Generate mask, clean noise, connect edges
     logger.info('Generating mask...')
@@ -268,7 +268,7 @@ def process_phantom(nifti, output_prefix, valid_radii, tmpdir, mp4=None):
 
     #Apply mask and connected components clustering
     logger.info('Applying mask...')
-    masked_vol = np.zeros_like(axial_vol,dtype=np.float)
+    masked_vol = np.zeros_like(axial_vol,dtype=np.float64)
     masked_vol[mask] = gauss_blur(axial_vol,sig=1)[mask]
     masked_vol = erosion(erosion(masked_vol > 0)) * 1
 
