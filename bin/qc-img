@@ -106,7 +106,7 @@ def main(image, name, filename, pic, cmaptype='grey', mode='3d', minval=None, ma
     image = str(image) # input checks
     opath = os.path.dirname(image) # grab the image folder
     output = str(image)
-    image = nib.load(image).get_data() # load in the daterbytes
+    image = nib.load(image).get_fdata() # load in the daterbytes
 
     if mode == '3d':
         if len(image.shape) > 3: # if image is 4D, only keep the first time-point

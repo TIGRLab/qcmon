@@ -107,10 +107,10 @@ def main():
     logging.info('Starting')
 
     # load in the data
-    image = nib.load(image).get_data()
+    image = nib.load(image).get_fdata()
 
     if label:
-        label = nib.load(label).get_data()
+        label = nib.load(label).get_fdata()
 
     # reorient the data to radiological (does this generalize?)
     image = np.transpose(image, (2,0,1))

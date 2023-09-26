@@ -51,7 +51,7 @@ def main(nifti, output, bval=None):
 
     logging.info('Starting')
 
-    nifti = reorient_4d_image(nib.load(nifti).get_data())
+    nifti = reorient_4d_image(nib.load(nifti).get_fdata())
 
     if bval:
         bval = np.genfromtxt(bval)
