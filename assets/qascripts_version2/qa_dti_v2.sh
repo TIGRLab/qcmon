@@ -36,7 +36,7 @@ resultfile=$4
 outdir=`dirname $resultfile`
 
 # --- start result file ---
-if [ $append -eq 0 ]; then 
+if [ $append -eq 0 ]; then
     echo -e "modulename\t$0"      > $resultfile
     echo -e "version\t$VERSION"  >> $resultfile
     echo -e "inputfile\t$infile" >> $resultfile
@@ -51,12 +51,13 @@ rm -f $outdir/${inroot}_b0tmp* $outdir/${inroot}_bXtmp*
 echo "Splitting $nvals volumes into b=0 and b!=0 subsets..."
 for (( i=0; i<$nvals; i++ )) ; do
     echo -n "."
-    if [ ${bvals[$i]} -eq "0" ]; then 
+    if [[ ${bvals[$i]} -ge "0" && ${bvals[$i]} -le "15" ]]; then
+        # Accept any value between 0 and 15 as a b0
 #        fslroi $infile $outdir/${inroot}_b0tmp_$i $i 1                          # this is too slow, use AFNI instead
         3dcalc -prefix $outdir/${inroot}_b0tmp$i.nii -a${i} $infile -expr 'a' 2>/dev/null
         let b0count=$b0count+1
     else
-#        fslroi $infile $outdir/${inroot}_bXtmp_$i $i 1    
+#        fslroi $infile $outdir/${inroot}_bXtmp_$i $i 1
         3dcalc -prefix $outdir/${inroot}_bXtmp$i.nii -a${i} $infile -expr 'a' 2>/dev/null
         let bxcount=$bxcount+1
     fi
@@ -72,7 +73,7 @@ rm -f $outdir/${inroot}_b0tmp* $outdir/${inroot}_bXtmp*
 
 # mask from b=0 volumes
 if [ "X${maskfile}" = "X" ]; then
-    echo "Automasking..." 
+    echo "Automasking..."
     maskfile=${outdir}/${inroot}_qamask.nii
     rm -f $maskfile
     3dAutomask -prefix $maskfile $outdir/${inroot}_b0.nii  2>/dev/null
@@ -104,7 +105,7 @@ echo "Computing mean motion-corrected b=0 volume..."
 fslmaths $outdir/${inroot}_b0_mc -Tmean ${outdir}/${inroot}_b0mean -odt float
 
 # --- clean up ---
-if [ $keep -eq 0 ]; then 
-    imrm $outdir/${inroot}_b0 $outdir/${inroot}_bX 
+if [ $keep -eq 0 ]; then
+    imrm $outdir/${inroot}_b0 $outdir/${inroot}_bX
 fi
 exit 0
