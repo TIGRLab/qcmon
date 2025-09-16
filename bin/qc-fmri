@@ -64,33 +64,8 @@ def main(nifti, prefix, tmpdir):
     logging.info('Running AFNI SFNR computations')
     qc.utilities.run('3dTstat -prefix {t}/std.nii.gz  -stdev {t}/mcorr.nii.gz'.format(t=tmpdir))
     qc.utilities.run("""3dcalc -prefix {prefix}_sfnr.nii.gz -a {t}/mean.nii.gz -b {t}/std.nii.gz -expr 'a/b'""".format(prefix=prefix, t=tmpdir))
-    sfnr = qc.utilities.load_masked_data('{prefix}_sfnr.nii.gz'.format(prefix=prefix), '{t}/mask.nii.gz'.format(t=tmpdir))
-    sfnr = np.mean(sfnr)
 
-    # spectra
-    logging.info('Running spectra')
     func = qc.utilities.load_masked_data('{t}/mcorr.nii.gz'.format(t=tmpdir), '{t}/mask.nii.gz'.format(t=tmpdir))
-    spec = sig.detrend(func, type='linear')
-    spec = sig.periodogram(spec, fs=0.5, return_onesided=True, scaling='density')
-    spec = np.vstack((spec[0], np.nanmean(spec[1], axis=0), np.nanstd(spec[1], axis=0)))
-    np.savetxt(prefix + '_spectra.csv', spec.T, header='freq,mean,sd', delimiter=',')
-
-    # framewise displacement, doi: 10.1016/j.neuroimage.2011.10.018
-    logging.info('Frame-wise displacement')
-    headRadius = 50   # assumed (in mm), for deg to rad conversion
-    fdThreshold = 0.2 # fd threshold in mm
-    fd = np.genfromtxt('{t}/motion.1D'.format(t=tmpdir))
-    fd[:,0] = np.radians(fd[:,0]) * headRadius
-    fd[:,1] = np.radians(fd[:,1]) * headRadius
-    fd[:,2] = np.radians(fd[:,2]) * headRadius
-    fd = np.abs(np.diff(fd, n=1, axis=0))
-    fd = np.sum(fd, axis=1)
-    numBadFd = len(np.where(fd > fdThreshold)[0])
-    pctBadFd = numBadFd / float(len(fd))
-
-    # write FD out as a two-column .csv file, including the TR number
-    logging.info('Writing to CSV file')
-    np.savetxt(prefix + '_fd.csv', np.vstack((np.arange(len(fd)), fd)).T, delimiter=',', header='tr,fd', comments='')
 
     # whole brain correlation (global correlation)
     # https://afni.nimh.nih.gov/pub/dist/doc/program_help/@compute_gcor.html
@@ -118,21 +93,6 @@ def main(nifti, prefix, tmpdir):
     out.header_class(extensions=())
     out.to_filename(prefix + '_corr.nii.gz')
 
-    # write out assorted statistics
-    logging.info('Writing statistics into csv')
-    with open(prefix + '_stats.csv', 'w') as f:
-        f.write('mean_fd,n_bad_fd,%_bad_fd,global_corr,mean_sfnr\n{},{},{},{},{}'.format(
-                 np.mean(fd), numBadFd, pctBadFd, gcorr, sfnr))
-
-    # run metrics from qascripts toolchain
-    logging.info('Running metrics from qcscripts toolchain')
-    qc.utilities.run('cp {nifti} {t}/raw.nii.gz'.format(nifti=nifti, t=tmpdir))
-
-    logging.info('Running qa_bold_v2')
-    qc.utilities.run('qa_bold_v2.sh {t}/raw.nii.gz {t}/qc_bold.csv'.format(t=tmpdir))
-
-    logging.info('Moving qc_bold.csv into qc folder')
-    qc.utilities.run('mv {t}/qc_bold.csv {prefix}_qascripts_bold.csv'.format(t=tmpdir, prefix=prefix))
 
     logging.info('Finished processing...')
 
